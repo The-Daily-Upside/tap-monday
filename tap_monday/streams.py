@@ -12,111 +12,130 @@ from tap_monday.client import MondayStream
 class WorkspacesStream(MondayStream):
     name = "workspaces"
     primary_keys = ["id"]
+    replication_key = None
     schema = th.PropertiesList(
-        th.Property("id", th.IntegerType),
-        th.Property("name", th.StringType),
-        th.Property("description", th.StringType),
-        th.Property("kind", th.StringType),
+        th.Property("id", th.StringType, description="The unique ID of the workspace"),
+        th.Property("name", th.StringType, description="The name of the workspace"),
+        th.Property("description", th.StringType, description="The description of the workspace"),
     ).to_dict()
 
     @property
     def query(self) -> str:
         return """
             query {
-              boards {
-                workspace {
-                  id
-                  name
-                  kind
-                  description
+                workspaces {
+                    id
+                    name
+                    description
                 }
-              }
             }
         """
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
         resp_json = response.json()
-        for row in resp_json["data"]["boards"]:
-            yield row["workspace"]
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response and yield each workspace
+        for workspace in resp_json.get("data", {}).get("workspaces", []):
+            yield workspace
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Optional[Any]:
+        # No pagination for this stream
+        return None
 
 
 class BoardsStream(MondayStream):
     name = "boards"
     primary_keys = ["id"]
     schema = th.PropertiesList(
-        th.Property("id", th.IntegerType),
+        th.Property("id", th.StringType),
         th.Property("name", th.StringType),
         th.Property("description", th.StringType),
         th.Property("state", th.StringType),
-        th.Property("updated_at", th.DateTimeType),
-        th.Property("workspace_id", th.IntegerType),
-        th.Property("items", th.ArrayType(th.ObjectType(
-            th.Property("id", th.IntegerType),
-            th.Property("created_at", th.DateTimeType),
+        th.Property("board_kind", th.StringType),
+        th.Property("permissions", th.StringType),
+        th.Property("owner", th.ObjectType(
+            th.Property("id", th.StringType),  # Allow string type for owner.id
             th.Property("name", th.StringType),
-            th.Property("state", th.StringType),
-            th.Property("updated_at", th.DateTimeType),
-            th.Property("board_id", th.IntegerType),
-            th.Property("column_values", th.ArrayType(
-                th.ObjectType(
+        )),
+        th.Property("updated_at", th.DateTimeType),
+        th.Property("workspace_id", th.StringType),  # Allow string type for workspace_id
+        th.Property("items", th.ArrayType(th.ObjectType(
+             th.Property("id", th.StringType, description="The unique ID of the item"),
+            th.Property("name", th.StringType, description="The name of the item"),
+            th.Property("created_at", th.DateTimeType, description="The item's creation date"),
+            th.Property("creator_id", th.StringType, description="The unique identifier of the item's creator"),
+            th.Property("email", th.StringType, description="The item's email"),
+            th.Property("relative_link", th.StringType, description="The item's relative path"),
+            th.Property("state", th.StringType, description="The state of the item"),
+            th.Property("updated_at", th.DateTimeType, description="The date the item was last updated"),
+            th.Property("url", th.StringType, description="The item's URL"),
+            th.Property("column_values", th.ArrayType(th.ObjectType(
+                th.Property("column", th.ObjectType(
                     th.Property("id", th.StringType),
                     th.Property("title", th.StringType),
-                    th.Property("text", th.StringType),
-                    th.Property("type", th.StringType),
-                    th.Property("value", th.StringType),
-                    # th.ObjectType(
-                    #     th.Property("changed_at", th.DateTimeType),
-                    #     th.Property("personsAndTeams", th.ArrayType(
-                    #         th.ObjectType(
-                    #             th.Property("id", th.IntegerType),
-                    #             th.Property("kind", th.StringType)
-                    #         )
-                    #     ))
-                    # )),
-                    th.Property("additional_info", th.StringType),
-                )
-            )),
-        ))),
+                )),
+                th.Property("id", th.StringType),
+                th.Property("type", th.StringType),
+                th.Property("value", th.StringType),
+            ))),
+        ))),  # Updated to match the new structure
     ).to_dict()
-
-    def get_url_params(
-        self, context: Optional[dict], next_page_token: Optional[Any]
-    ) -> Dict[str, Any]:
-        return {
-            "page": next_page_token or 1,
-            "board_limit": self.config["board_limit"]
-        }
-
 
     @property
     def query(self) -> str:
         return """
             query ($page: Int!, $board_limit: Int!) {
-                boards(limit: $board_limit, page: $page, order_by: created_at) {
+                boards(limit: $board_limit, page: $page) {
+                    id
+                    name
+                    description
+                    state
+                    board_kind
+                    permissions
+                    owner {
                         id
-                        updated_at
                         name
-                        description
-                        state
-                        workspace_id
+                    }
+                    updated_at
+                    workspace_id
+                    items_page {
                         items {
                             id
                             name
-                            state
                             created_at
+                            creator_id
+                            email
+                            relative_link
+                            state
                             updated_at
+                            url
                             column_values {
+                                column {
+                                    id
+                                    title
+                                }
                                 id
-                                title
-                                text
                                 type
                                 value
-                                additional_info
                             }
                         }
                     }
                 }
+            }
         """
+
+    def get_url_params(
+        self, context: Optional[dict], next_page_token: Optional[Any]
+    ) -> Dict[str, Any]:
+        # Ensure page and board_limit are integers
+        return {
+            "page": int(next_page_token or 1),
+            "board_limit": int(self.config.get("board_limit", 10)),
+        }
 
     def get_child_context(self, record: dict, context: Optional[dict]) -> dict:
         return {
@@ -124,27 +143,36 @@ class BoardsStream(MondayStream):
         }
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
         resp_json = response.json()
-        for row in resp_json["data"]["boards"]:
-            yield row
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response as usual
+        for board in resp_json.get("data", {}).get("boards", []):
+            # Flatten the items_page structure into the board record
+            board["items"] = board.get("items_page", {}).get("items", [])
+            yield board
 
     def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
-        row["id"] = int(row["id"])
-        for item in row["items"]:
-            item["id"] = int(item["id"])
+        # row["id"] = int(row["id"])
+        # Safely handle the absence of the 'items' key
+        # if "items" in row and row["items"]:
+        #     for item in row["items"]:
+        #         # item["id"] = int(item["id"])
         return row
 
     def get_next_page_token(
         self, response: requests.Response, previous_token: Optional[Any]
     ) -> Any:
         current_page = previous_token if previous_token is not None else 1
-        if len(response.json()["data"][self.name]) == self.config["board_limit"]:
-            next_page_token = current_page + 1
-        else:
-            next_page_token = None
-        return next_page_token
+        if len(response.json()["data"]["boards"]) == self.config.get("board_limit", 10):
+            return current_page + 1
+        return None
 
     def validate_response(self, response: requests.Response) -> None:
+        if response.status_code == 400:
+            self.logger.error(f"400 Bad Request: {response.text}")
+        super().validate_response(response)
         if response.status_code == 408:
             msg = (
                 f"{response.status_code} Server Error: "
@@ -172,40 +200,62 @@ class BoardViewsStream(MondayStream):
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
-    # records_jsonpath: str = "$.data.boards[0].groups[*]"  # TODO: use records_jsonpath instead of overriding parse_response
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
         th.Property("name", th.StringType),
-        th.Property("settings_str", th.StringType),
         th.Property("type", th.StringType),
+        th.Property("settings_str", th.StringType),  # Field for view settings
+        th.Property("view_specific_data_str", th.StringType),  # Field for specific data
+        th.Property("board_id", th.StringType),  # Field for parent board ID
     ).to_dict()
-
-    def get_url_params(
-        self, context: Optional[dict], next_page_token: Optional[Any]
-    ) -> Dict[str, Any]:
-        return {
-            "board_id": context["board_id"]
-        }
 
     @property
     def query(self) -> str:
         return """
-            query ($board_id: [Int]) {
+            query ($board_id: [ID!]!) {
                 boards(ids: $board_id) {
+                    id 
                     views {
                         id
                         name
                         type
                         settings_str
+                        view_specific_data_str
                     }
                 }
             }
         """
 
+    def get_url_params(
+        self, context: Optional[dict], next_page_token: Optional[Any]
+    ) -> Dict[str, Any]:
+        # Ensure board_id is passed as a list of strings
+        return {
+            "board_id": [str(context["board_id"])]
+        }
+
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
         resp_json = response.json()
-        for row in resp_json["data"]["boards"][0]["views"]:
-            yield row
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response as usual
+        for board in resp_json.get("data", {}).get("boards", []):
+            board_id = board.get("id")  # Safely retrieve the board ID
+            for view in board.get("views", []):
+                view["board_id"] = board_id  # Add the parent board ID to the view
+                yield view
+
+    def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
+        # Normalize fields if needed
+        row["board_id"] = context["board_id"]
+        return row
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Any:
+        # No pagination for this stream
+        return None
 
 
 class GroupsStream(MondayStream):
@@ -214,46 +264,63 @@ class GroupsStream(MondayStream):
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
-    # records_jsonpath: str = "$.data.boards[0].groups[*]"  # TODO: use records_jsonpath instead of overriding parse_response
     schema = th.PropertiesList(
-        th.Property("id", th.StringType),
-        th.Property("title", th.StringType),
-        th.Property("position", th.NumberType),
-        th.Property("board_id", th.NumberType),
-        th.Property("color", th.StringType),
+        th.Property("id", th.StringType, description="The unique ID of the group"),
+        th.Property("title", th.StringType, description="The title of the group"),
+        th.Property("position", th.NumberType, description="The position of the group"),
+        th.Property("color", th.StringType, description="The color of the group"),
+        th.Property("archived", th.BooleanType, description="Whether the group is archived"),
+        th.Property("board_id", th.StringType, description="The ID of the parent board"),
     ).to_dict()
-
-    def get_url_params(
-        self, context: Optional[dict], next_page_token: Optional[Any]
-    ) -> Dict[str, Any]:
-        return {
-            "board_id": context["board_id"]
-        }
 
     @property
     def query(self) -> str:
         return """
-            query ($board_id: [Int]) {
+            query ($board_id: [ID!]!) {
                 boards(ids: $board_id) {
-                    groups() {
+                    id
+                    groups {
+                        id
                         title
                         position
-                        id
                         color
+                        archived
                     }
                 }
             }
         """
 
+    def get_url_params(
+        self, context: Optional[dict], next_page_token: Optional[Any]
+    ) -> Dict[str, Any]:
+        # Ensure board_id is passed as a list of strings
+        return {
+            "board_id": [str(context["board_id"])]
+        }
+
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
         resp_json = response.json()
-        for row in resp_json["data"]["boards"][0]["groups"]:
-            yield row
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response and yield each group
+        for board in resp_json.get("data", {}).get("boards", []):
+            board_id = board.get("id")  # Safely retrieve the board ID
+            for group in board.get("groups", []):
+                group["board_id"] = board_id  # Add the parent board ID to the group
+                yield group
 
     def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
-        row["position"] = float(row["position"])
+        # Normalize fields if needed
         row["board_id"] = context["board_id"]
+        row["position"] = float(row["position"]) if "position" in row else None  # Ensure position is a float
         return row
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Optional[Any]:
+        # No pagination for this stream
+        return None
 
 
 class ColumnsStream(MondayStream):
@@ -262,47 +329,126 @@ class ColumnsStream(MondayStream):
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
-    # records_jsonpath: str = "$.data.boards[0].groups[*]"  # TODO: use records_jsonpath instead of overriding parse_response
     schema = th.PropertiesList(
-        th.Property("id", th.StringType),
-        th.Property("archived", th.BooleanType),
-        th.Property("settings_str", th.StringType),
-        th.Property("title", th.StringType),
-        th.Property("type", th.StringType),
-        th.Property("width", th.IntegerType),
-        th.Property("board_id", th.IntegerType),
+        th.Property("id", th.StringType, description="The unique ID of the column"),
+        th.Property("title", th.StringType, description="The title of the column"),
+        th.Property("type", th.StringType, description="The type of the column"),
+        th.Property("settings_str", th.StringType, description="Settings for the column"),
+        th.Property("archived", th.BooleanType, description="Whether the column is archived"),
+        th.Property("width", th.StringType, description="The width of the column"),  # Ensure width is a string
+        th.Property("board_id", th.StringType, description="The ID of the parent board"),
     ).to_dict()
-
-    def get_url_params(
-        self, context: Optional[dict], next_page_token: Optional[Any]
-    ) -> Dict[str, Any]:
-        return {
-            "board_id": context["board_id"],
-        }
 
     @property
     def query(self) -> str:
         return """
-            query ($board_id: [Int]) {
+            query ($board_id: [ID!]!) {
                 boards(ids: $board_id) {
+                    id
                     columns {
-                        archived
                         id
-                        settings_str
                         title
                         type
+                        settings_str
+                        archived
                         width
-                    }    
+                    }
                 }
             }
         """
 
+    def get_url_params(
+        self, context: Optional[dict], next_page_token: Optional[Any]
+    ) -> Dict[str, Any]:
+        # Ensure board_id is passed as a list of strings
+        return {
+            "board_id": [str(context["board_id"])]
+        }
+
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
         resp_json = response.json()
-        for row in resp_json["data"]["boards"]:
-            for column in row["columns"]:
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response and yield each column
+        for board in resp_json.get("data", {}).get("boards", []):
+            board_id = board.get("id")  # Safely retrieve the board ID
+            for column in board.get("columns", []):
+                column["board_id"] = board_id  # Add the parent board ID to the column
                 yield column
 
     def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
+        # Normalize fields if needed
+        row["board_id"] = context["board_id"]
+        # Ensure width is cast to a string
+        if "width" in row and row["width"] is not None:
+            row["width"] = str(row["width"])
+        return row
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Optional[Any]:
+        # No pagination for this stream
+        return None
+
+
+class ItemsStream(MondayStream):
+    name = "items"
+    primary_keys = ["id"]
+    replication_key = None
+    parent_stream_type = BoardsStream
+    ignore_parent_replication_keys = True
+    schema = th.PropertiesList(
+        th.Property("id", th.StringType, description="The unique ID of the item"),
+        th.Property("name", th.StringType, description="The name of the item"),
+        th.Property("board_id", th.StringType, description="The ID of the parent board"),
+    ).to_dict()
+
+    @property
+    def query(self) -> str:
+        return """
+            query ($board_id: [ID!]!) {
+                boards(ids: $board_id) {
+                    id
+                    items {
+                        id
+                        name
+                    }
+                }
+            }
+        """
+
+    def get_url_params(
+        self, context: Optional[dict], next_page_token: Optional[Any]
+    ) -> Dict[str, Any]:
+        # Ensure board_id is passed as a list of strings
+        return {
+            "board_id": [str(context["board_id"])]
+        }
+
+    def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
+        try:
+            resp_json = response.json()
+            self.logger.info(f"Raw API response: {resp_json}")
+        except ValueError as e:
+            self.logger.error(f"Failed to parse response JSON: {e}")
+            raise
+
+        # Process the response and yield each item
+        for board in resp_json.get("data", {}).get("boards", []):
+            board_id = board.get("id")  # Safely retrieve the board ID
+            for item in board.get("items", []):
+                item["board_id"] = board_id  # Add the parent board ID to the item
+                yield item
+
+    def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
+        # Normalize fields if needed
         row["board_id"] = context["board_id"]
         return row
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Optional[Any]:
+        # No pagination for this stream
+        return None
