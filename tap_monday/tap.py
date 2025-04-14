@@ -12,6 +12,7 @@ from tap_monday.streams import (
     BoardViewsStream,
     ColumnsStream,
     GroupsStream,
+    UsersStream, 
 )
 
 STREAM_TYPES = [
@@ -20,6 +21,7 @@ STREAM_TYPES = [
     BoardViewsStream,
     ColumnsStream,
     GroupsStream,
+    UsersStream,
 ]
 
 

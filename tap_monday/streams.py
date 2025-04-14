@@ -452,3 +452,59 @@ class ItemsStream(MondayStream):
     ) -> Optional[Any]:
         # No pagination for this stream
         return None
+
+
+class UsersStream(MondayStream):
+    name = "users"
+    primary_keys = ["id"]
+    replication_key = None
+    schema = th.PropertiesList(
+        th.Property("id", th.StringType, description="The unique ID of the user"),
+        th.Property("name", th.StringType, description="The name of the user"),
+        th.Property("email", th.StringType, description="The email of the user"),
+        th.Property("enabled", th.BooleanType, description="Whether the user is enabled"),
+        th.Property("is_admin", th.BooleanType, description="Whether the user is an admin"),
+        th.Property("is_guest", th.BooleanType, description="Whether the user is a guest"),
+        th.Property("url", th.StringType, description="The URL of the user's profile"),
+        th.Property("teams", th.ArrayType(th.ObjectType(
+            th.Property("id", th.StringType, description="The unique ID of the team"),
+            th.Property("name", th.StringType, description="The name of the team"),
+        )), description="The teams the user belongs to"),
+        th.Property("created_at", th.DateTimeType, description="The date the user was created"),
+    ).to_dict()
+
+    @property
+    def query(self) -> str:
+        return """
+            query {
+                users {
+                    id
+                    name
+                    email
+                    enabled
+                    is_admin
+                    is_guest
+                    url
+                    teams {
+                        id
+                        name
+                    }
+                    created_at
+                }
+            }
+        """
+
+    def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        # Log the raw response JSON for debugging
+        resp_json = response.json()
+        self.logger.info(f"Raw API response: {resp_json}")
+
+        # Process the response and yield each user
+        for user in resp_json.get("data", {}).get("users", []):
+            yield user
+
+    def get_next_page_token(
+        self, response: requests.Response, previous_token: Optional[Any]
+    ) -> Optional[Any]:
+        # No pagination for this stream
+        return None
