@@ -103,7 +103,7 @@ class BoardsStream(MondayStream):
                     updated_at
                     workspace_id
                     items_page {
-                        items {
+                        items (limit: 1000) {
                             id
                             name
                             created_at
