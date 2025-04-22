@@ -64,7 +64,7 @@ class BoardsStream(MondayStream):
         th.Property("updated_at", th.DateTimeType),
         th.Property("workspace_id", th.StringType),  # Allow string type for workspace_id
         th.Property("items", th.ArrayType(th.ObjectType(
-             th.Property("id", th.StringType, description="The unique ID of the item"),
+            th.Property("id", th.StringType, description="The unique ID of the item"),
             th.Property("name", th.StringType, description="The name of the item"),
             th.Property("created_at", th.DateTimeType, description="The item's creation date"),
             th.Property("creator_id", th.StringType, description="The unique identifier of the item's creator"),
@@ -404,16 +404,23 @@ class ItemsStream(MondayStream):
         th.Property("board_id", th.StringType, description="The ID of the parent board"),
         th.Property("group_id", th.StringType, description="The ID of the group the item belongs to"),
         th.Property("state", th.StringType, description="The state of the item"),
-        th.Property("creator_id", th.StringType, description="The ID of the user who created the item"),
-        th.Property("created_at", th.DateTimeType, description="The creation timestamp of the item"),
         th.Property("updated_at", th.DateTimeType, description="The last updated timestamp of the item"),
+        th.Property("created_at", th.DateTimeType, description="The item's creation date"),
+        th.Property("creator_id", th.StringType, description="The unique identifier of the item's creator"),
+        th.Property("email", th.StringType, description="The item's email"),
+        th.Property("relative_link", th.StringType, description="The item's relative path"),
+        th.Property("state", th.StringType, description="The state of the item"),
+        th.Property("updated_at", th.DateTimeType, description="The date the item was last updated"),
+        th.Property("url", th.StringType, description="The item's URL"),
         th.Property("column_values", th.ArrayType(th.ObjectType(
             th.Property("column", th.ObjectType(
-                th.Property("title", th.StringType, description="The title of the column"),
+                th.Property("id", th.StringType),
+                th.Property("title", th.StringType),
             )),
-            th.Property("text", th.StringType, description="The text value of the column"),
-            th.Property("value", th.StringType, description="The raw value of the column"),
-        )), description="The column values of the item"),
+            th.Property("id", th.StringType),
+            th.Property("type", th.StringType),
+            th.Property("value", th.StringType),
+        ))),
     ).to_dict()
 
     @property
@@ -427,20 +434,20 @@ class ItemsStream(MondayStream):
                         items {
                             id
                             name
-                            group {
-                                id
-                            }
-                            state
-                            creator {
-                                id
-                            }
                             created_at
+                            creator_id
+                            email
+                            relative_link
+                            state
                             updated_at
+                            url
                             column_values {
                                 column {
+                                    id
                                     title
                                 }
-                                text
+                                id
+                                type
                                 value
                             }
                         }
