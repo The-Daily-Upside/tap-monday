@@ -96,14 +96,14 @@ class BoardsStream(MondayStream):
                     state
                     board_kind
                     permissions
-                    owner {
+                    creator {
                         id
                         name
                     }
                     updated_at
                     workspace_id
-                    items_page {
-                        items (limit: 1000) {
+                    items_page(limit: 25, query_params: {order_by:{column_id:"__last_updated__",direction:desc}}) {
+                        items {
                             id
                             name
                             created_at
@@ -402,17 +402,48 @@ class ItemsStream(MondayStream):
         th.Property("id", th.StringType, description="The unique ID of the item"),
         th.Property("name", th.StringType, description="The name of the item"),
         th.Property("board_id", th.StringType, description="The ID of the parent board"),
+        th.Property("group_id", th.StringType, description="The ID of the group the item belongs to"),
+        th.Property("state", th.StringType, description="The state of the item"),
+        th.Property("creator_id", th.StringType, description="The ID of the user who created the item"),
+        th.Property("created_at", th.DateTimeType, description="The creation timestamp of the item"),
+        th.Property("updated_at", th.DateTimeType, description="The last updated timestamp of the item"),
+        th.Property("column_values", th.ArrayType(th.ObjectType(
+            th.Property("column", th.ObjectType(
+                th.Property("title", th.StringType, description="The title of the column"),
+            )),
+            th.Property("text", th.StringType, description="The text value of the column"),
+            th.Property("value", th.StringType, description="The raw value of the column"),
+        )), description="The column values of the item"),
     ).to_dict()
 
     @property
     def query(self) -> str:
         return """
-            query ($board_id: [ID!]!) {
+            query ($board_id: [ID!]!, $cursor: String, $limit: Int!) {
                 boards(ids: $board_id) {
                     id
-                    items {
-                        id
-                        name
+                    items_page(cursor: $cursor, limit: $limit) {
+                        cursor
+                        items {
+                            id
+                            name
+                            group {
+                                id
+                            }
+                            state
+                            creator {
+                                id
+                            }
+                            created_at
+                            updated_at
+                            column_values {
+                                column {
+                                    title
+                                }
+                                text
+                                value
+                            }
+                        }
                     }
                 }
             }
@@ -421,37 +452,36 @@ class ItemsStream(MondayStream):
     def get_url_params(
         self, context: Optional[dict], next_page_token: Optional[Any]
     ) -> Dict[str, Any]:
-        # Ensure board_id is passed as a list of strings
+        # Pass the board_id, cursor, and limit for pagination
         return {
-            "board_id": [str(context["board_id"])]
+            "board_id": [str(context["board_id"])],
+            "cursor": next_page_token,  # Use the cursor for pagination
+            "limit": 100,  # Fetch 100 items per page
         }
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
-        try:
-            resp_json = response.json()
-            self.logger.info(f"Raw API response: {resp_json}")
-        except ValueError as e:
-            self.logger.error(f"Failed to parse response JSON: {e}")
-            raise
+        resp_json = response.json()
+        self.logger.info(f"Raw API response: {resp_json}")
 
         # Process the response and yield each item
         for board in resp_json.get("data", {}).get("boards", []):
-            board_id = board.get("id")  # Safely retrieve the board ID
-            for item in board.get("items", []):
+            board_id = board.get("id")
+            items_data = board.get("items_page", {})
+            for item in items_data.get("items", []):
                 item["board_id"] = board_id  # Add the parent board ID to the item
+                item["group_id"] = item.get("group", {}).get("id")  # Extract group ID
+                item["creator_id"] = item.get("creator", {}).get("id")  # Extract creator ID
                 yield item
-
-    def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
-        # Normalize fields if needed
-        row["board_id"] = context["board_id"]
-        return row
 
     def get_next_page_token(
         self, response: requests.Response, previous_token: Optional[Any]
-    ) -> Optional[Any]:
-        # No pagination for this stream
-        return None
+    ) -> Optional[str]:
+        # Extract the next cursor for pagination
+        resp_json = response.json()
+        for board in resp_json.get("data", {}).get("boards", []):
+            return board.get("items_page", {}).get("cursor")  # Return the cursor for the next page
+        return None  # No more pages
 
 
 class UsersStream(MondayStream):

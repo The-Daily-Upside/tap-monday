@@ -13,6 +13,7 @@ from tap_monday.streams import (
     ColumnsStream,
     GroupsStream,
     UsersStream, 
+    ItemsStream,
 )
 
 STREAM_TYPES = [
@@ -22,6 +23,7 @@ STREAM_TYPES = [
     ColumnsStream,
     GroupsStream,
     UsersStream,
+    ItemsStream,
 ]
 
 
