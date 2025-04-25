@@ -34,8 +34,7 @@ class WorkspacesStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
-
+        
         # Process the response and yield each workspace
         for workspace in resp_json.get("data", {}).get("workspaces", []):
             yield workspace
@@ -145,7 +144,6 @@ class BoardsStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
 
         # Process the response as usual
         for board in resp_json.get("data", {}).get("boards", []):
@@ -154,11 +152,6 @@ class BoardsStream(MondayStream):
             yield board
 
     def post_process(self, row: dict, context: Optional[dict] = None) -> dict:
-        # row["id"] = int(row["id"])
-        # Safely handle the absence of the 'items' key
-        # if "items" in row and row["items"]:
-        #     for item in row["items"]:
-        #         # item["id"] = int(item["id"])
         return row
 
     def get_next_page_token(
@@ -196,7 +189,7 @@ class BoardsStream(MondayStream):
 
 class BoardViewsStream(MondayStream):
     name = "board_views"
-    primary_keys = ["id"]
+    primary_keys = ["id", "board_id"]  # Composite primary key
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
@@ -204,9 +197,9 @@ class BoardViewsStream(MondayStream):
         th.Property("id", th.StringType),
         th.Property("name", th.StringType),
         th.Property("type", th.StringType),
-        th.Property("settings_str", th.StringType),  # Field for view settings
-        th.Property("view_specific_data_str", th.StringType),  # Field for specific data
-        th.Property("board_id", th.StringType),  # Field for parent board ID
+        th.Property("settings_str", th.StringType),
+        th.Property("view_specific_data_str", th.StringType),
+        th.Property("board_id", th.StringType),
     ).to_dict()
 
     @property
@@ -237,8 +230,7 @@ class BoardViewsStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
-
+        
         # Process the response as usual
         for board in resp_json.get("data", {}).get("boards", []):
             board_id = board.get("id")  # Safely retrieve the board ID
@@ -260,7 +252,7 @@ class BoardViewsStream(MondayStream):
 
 class GroupsStream(MondayStream):
     name = "groups"
-    primary_keys = ["id"]
+    primary_keys = ["id", "board_id"]  # Composite primary key
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
@@ -301,7 +293,6 @@ class GroupsStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
 
         # Process the response and yield each group
         for board in resp_json.get("data", {}).get("boards", []):
@@ -325,7 +316,7 @@ class GroupsStream(MondayStream):
 
 class ColumnsStream(MondayStream):
     name = "columns"
-    primary_keys = ["id"]
+    primary_keys = ["id", "board_id"]  # Composite primary key
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
@@ -335,7 +326,7 @@ class ColumnsStream(MondayStream):
         th.Property("type", th.StringType, description="The type of the column"),
         th.Property("settings_str", th.StringType, description="Settings for the column"),
         th.Property("archived", th.BooleanType, description="Whether the column is archived"),
-        th.Property("width", th.StringType, description="The width of the column"),  # Ensure width is a string
+        th.Property("width", th.StringType, description="The width of the column"),
         th.Property("board_id", th.StringType, description="The ID of the parent board"),
     ).to_dict()
 
@@ -368,7 +359,6 @@ class ColumnsStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
 
         # Process the response and yield each column
         for board in resp_json.get("data", {}).get("boards", []):
@@ -381,7 +371,9 @@ class ColumnsStream(MondayStream):
         # Normalize fields if needed
         row["board_id"] = context["board_id"]
         # Ensure width is cast to a string
-        if "width" in row and row["width"] is not None:
+        if row.get("width") is None: 
+            row["width"] = "0"
+        else:
             row["width"] = str(row["width"])
         return row
 
@@ -394,7 +386,7 @@ class ColumnsStream(MondayStream):
 
 class ItemsStream(MondayStream):
     name = "items"
-    primary_keys = ["id"]
+    primary_keys = ["id", "board_id"]  # Composite primary key
     replication_key = None
     parent_stream_type = BoardsStream
     ignore_parent_replication_keys = True
@@ -469,8 +461,7 @@ class ItemsStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
-
+        
         # Process the response and yield each item
         for board in resp_json.get("data", {}).get("boards", []):
             board_id = board.get("id")
@@ -534,8 +525,7 @@ class UsersStream(MondayStream):
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         # Log the raw response JSON for debugging
         resp_json = response.json()
-        self.logger.info(f"Raw API response: {resp_json}")
-
+       
         # Process the response and yield each user
         for user in resp_json.get("data", {}).get("users", []):
             yield user
