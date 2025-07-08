@@ -443,6 +443,9 @@ class ItemsStream(MondayStream):
                                 }
                                 id
                                 type
+                                ... on BoardRelationValue {
+                                    linked_item_ids
+                                }
                                 value
                             }
                         }
