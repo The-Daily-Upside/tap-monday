@@ -81,7 +81,7 @@ class BoardsStream(MondayStream):
                 th.Property("type", th.StringType),
                 th.Property("value", th.StringType),
                 # Allow BoardRelationValue to have linked_item_ids
-                th.Property("linked_item_ids", th.ArrayType(th.StringType, description="List of linked item IDs", default=[])),
+                th.Property("linked_item_ids", th.ArrayType(th.StringType)),
             ))),
         ))),  # Updated to match the new structure
     ).to_dict()
@@ -418,7 +418,7 @@ class ItemsStream(MondayStream):
             th.Property("type", th.StringType),
             th.Property("value", th.StringType),
             # Allow BoardRelationValue to have linked_item_ids
-            th.Property("linked_item_ids", th.ArrayType(th.StringType, description="List of linked item IDs", default=[]
+            th.Property("linked_item_ids", th.ArrayType(th.StringType)),
         ))),
     ).to_dict()
 
